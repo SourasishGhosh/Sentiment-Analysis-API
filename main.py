@@ -1,19 +1,18 @@
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Literal
-from fastapi import FastAPI, HTTPException
 from openai import OpenAI
 import os
-from dotenv import load_dotenv
-from fastapi.middleware.cors import CORSMiddleware 
+import json
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For testing
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS", "PUT", "DELETE"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
-    expose_headers=["*"]
 )
 
 class CommentRequest(BaseModel):
@@ -21,67 +20,44 @@ class CommentRequest(BaseModel):
 
 class SentimentResponse(BaseModel):
     sentiment: Literal["positive", "negative", "neutral"]
-    rating: int  # Must be 1-5
+    rating: int
 
-
-#load_dotenv()
+# FIXED: No proxies config + env var check
 api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
-    raise ValueError("API key not found")
+    raise ValueError("OPENAI_API_KEY environment variable is required")
 
-client = OpenAI(
-    api_key=api_key,
-    base_url="https://aipipe.org/openai/v1"
-)
-#client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(api_key=api_key)
 
-app = FastAPI()
+@app.get("/")
+def root():
+    return {"status": "Sentiment API - Vercel Ready!"}
 
 @app.post("/comment", response_model=SentimentResponse)
 async def analyze_comment(request: CommentRequest):
     try:
-        # The JSON SCHEMA that forces OpenAI to return exact structure
         response_schema = {
-            "name": "sentiment_response",  # ← REQUIRED
+            "name": "sentiment_response",
             "schema": {
                 "type": "object",
                 "properties": {
-                    "sentiment": {
-                        "type": "string",
-                        "enum": ["positive", "negative", "neutral"]
-                    },
-                    "rating": {
-                        "type": "integer",
-                        "minimum": 1,
-                        "maximum": 5
-                    }
+                    "sentiment": {"type": "string", "enum": ["positive", "negative", "neutral"]},
+                    "rating": {"type": "integer", "minimum": 1, "maximum": 5}
                 },
                 "required": ["sentiment", "rating"],
                 "additionalProperties": False
             },
-            "strict": True  # ← REQUIRED
+            "strict": True
         }
         
-        # Ask OpenAI with STRUCTURED OUTPUTS (the magic part!)
         response = client.chat.completions.create(
-            model="gpt-4.1-mini",  # Supports structured outputs
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"Analyze this customer comment for sentiment: {request.comment}"
-                }
-            ],
-            response_format={
-                "type": "json_schema",
-                "json_schema": response_schema
-            }
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": f"Analyze sentiment: {request.comment}"}],
+            response_format={"type": "json_schema", "json_schema": response_schema}
         )
         
-        # OpenAI gives us PERFECT JSON - no parsing needed!
-        result = eval(response.choices[0].message.content)  # Safe because of schema
-        
+        result = json.loads(response.choices[0].message.content)
         return SentimentResponse(**result)
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
-
+        raise HTTPException(status_code=500, detail=str(e))
