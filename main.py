@@ -24,7 +24,7 @@ class SentimentResponse(BaseModel):
     rating: int  # Must be 1-5
 
 
-load_dotenv()
+#load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
     raise ValueError("API key not found")
@@ -84,3 +84,4 @@ async def analyze_comment(request: CommentRequest):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
